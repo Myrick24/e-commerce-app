@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class CartItem {
   final String id;
@@ -332,7 +333,21 @@ class CartService extends ChangeNotifier {
           final orderId = 'order_${orderTime.millisecondsSinceEpoch}_${item.productId}';
           print('Creating order with ID: $orderId for product: ${item.productName}');
           
-          // Create order document with all product details embedded
+          // First, get current user info
+          User? currentUser = FirebaseAuth.instance.currentUser;
+          Map<String, dynamic> userData = {};
+          
+          if (currentUser != null) {
+            try {
+              DocumentSnapshot userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+              if (userDoc.exists) {
+                userData = userDoc.data() as Map<String, dynamic>;
+              }
+            } catch (e) {
+              print('Error loading user data: $e');
+            }
+          }
+          
           final orderRef = _firestore.collection('orders').doc(orderId);
           final orderData = {
             'id': orderId,
@@ -352,6 +367,10 @@ class CartService extends ChangeNotifier {
             // Add meet-up location if delivery method is Meet-up
             if (deliveryMethod == 'Meet-up' && meetupLocation != null && meetupLocation.isNotEmpty)
               'meetupLocation': meetupLocation,
+            // Add customer info
+            'customerName': userData['name'] ?? userData['fullName'] ?? currentUser?.displayName ?? 'Customer',
+            'userEmail': currentUser?.email,
+            'customerContact': userData['phone'] ?? userData['phoneNumber'] ?? 'No contact information',
           };
           
           print('Order data: $orderData');

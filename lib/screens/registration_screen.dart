@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({Key? key}) : super(key: key);
@@ -11,6 +12,7 @@ class RegistrationScreen extends StatefulWidget {
 class _RegistrationScreenState extends State<RegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _firestore = FirebaseFirestore.instance;
+  final _auth = FirebaseAuth.instance;
   
   // Form controllers
   final _fullNameController = TextEditingController();
@@ -28,6 +30,21 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   bool _other = false;
   
   bool _isLoading = false;
+  
+  @override
+  void initState() {
+    super.initState();
+    _fillCurrentUserEmail();
+  }
+  
+  Future<void> _fillCurrentUserEmail() async {
+    final currentUser = _auth.currentUser;
+    if (currentUser != null && currentUser.email != null && currentUser.email!.isNotEmpty) {
+      setState(() {
+        _emailController.text = currentUser.email!;
+      });
+    }
+  }
   
   @override
   void dispose() {
@@ -50,6 +67,18 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     });
     
     try {
+      // Check if user is logged in
+      User? currentUser = _auth.currentUser;
+      if (currentUser == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error: You must be logged in to register as a seller')),
+        );
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+      
       // Create a list of selected product types
       List<String> productTypes = [];
       if (_fruits) productTypes.add('Fruits');
@@ -61,6 +90,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       // Generate a unique ID for the seller
       final String sellerId = DateTime.now().millisecondsSinceEpoch.toString();
       
+      // Use the current user's email to ensure consistency
+      String sellerEmail = _emailController.text.trim();
+      if (sellerEmail.isEmpty) {
+        sellerEmail = currentUser.email ?? '';
+      }
+      
       // Create a seller document in Firestore with a specific ID
       await _firestore.collection('sellers').doc(sellerId).set({
         'id': sellerId,
@@ -68,7 +103,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         'businessName': _businessNameController.text.trim(),
         'location': _locationController.text.trim(),
         'phone': _phoneController.text.trim(),
-        'email': _emailController.text.trim(),
+        'email': sellerEmail,
         'farmDescription': _farmDescriptionController.text.trim(),
         'productTypes': productTypes,
         'createdAt': FieldValue.serverTimestamp(),
@@ -79,7 +114,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Registration successful!')),
           );
-          Navigator.pop(context); // Return to previous screen
+          // Return to previous screen with a result to indicate seller registration
+          Navigator.pop(context, {'success': true, 'sellerId': sellerId});
         }
         return docRef;
       }).catchError((error) {
@@ -221,10 +257,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
+                  readOnly: true, // Make it readonly as we use the current user's email
                   decoration: const InputDecoration(
-                    labelText: 'Email Address (Optional)',
+                    labelText: 'Email Address (From your account)',
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    hintText: 'Using your account email',
                   ),
                 ),
                 const SizedBox(height: 24),

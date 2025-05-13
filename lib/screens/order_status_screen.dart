@@ -73,13 +73,35 @@ class _OrderStatusScreenState extends State<OrderStatusScreen> {
         }
       }
       
-      // Get customer info if seller is viewing
+      // Get comprehensive customer info if seller is viewing
       if (_isSeller && orderData.containsKey('userId')) {
-        final userDoc = await _firestore.collection('users').doc(orderData['userId']).get();
-        if (userDoc.exists) {
-          final userData = userDoc.data() as Map<String, dynamic>;
-          orderData['customerName'] = userData['fullName'] ?? 'Unknown Customer';
-          orderData['customerContact'] = userData['phone'] ?? 'No contact info';
+        try {
+          final userDoc = await _firestore.collection('users').doc(orderData['userId']).get();
+          if (userDoc.exists) {
+            final userData = userDoc.data() as Map<String, dynamic>;
+            
+            // Get all available customer information
+            orderData['customerName'] = userData['name'] ?? userData['fullName'] ?? 'Unknown Customer';
+            orderData['customerContact'] = userData['phone'] ?? userData['phoneNumber'] ?? userData['contact'] ?? 'No contact info';
+            orderData['customerEmail'] = userData['email'] ?? orderData['userEmail'] ?? 'No email provided';
+            orderData['customerAddress'] = userData['address'] ?? userData['location'] ?? 'No address provided';
+            
+            // Try to get additional profile information if available
+            if (userData.containsKey('profile')) {
+              final profileData = userData['profile'] as Map<String, dynamic>?;
+              if (profileData != null) {
+                if (!orderData.containsKey('customerAddress') || orderData['customerAddress'] == 'No address provided') {
+                  orderData['customerAddress'] = profileData['address'] ?? 'No address provided';
+                }
+                if (!orderData.containsKey('customerContact') || orderData['customerContact'] == 'No contact info') {
+                  orderData['customerContact'] = profileData['phone'] ?? profileData['phoneNumber'] ?? 'No contact info';
+                }
+              }
+            }
+          }
+        } catch (userError) {
+          print('Error fetching user data: $userError');
+          // Continue with existing order data even if user fetch fails
         }
       }
       
@@ -484,6 +506,8 @@ class _OrderStatusScreenState extends State<OrderStatusScreen> {
                                 const SizedBox(height: 12),
                                 _buildInfoRow('Name', _orderData?['customerName'] ?? 'Unknown'),
                                 _buildInfoRow('Contact', _orderData?['customerContact'] ?? 'No contact info'),
+                                _buildInfoRow('Email', _orderData?['customerEmail'] ?? _orderData?['userEmail'] ?? 'No email provided'),
+                                _buildInfoRow('Address', _orderData?['customerAddress'] ?? 'No address provided'),
                               ],
                               
                               // Show updates log if any

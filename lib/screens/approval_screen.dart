@@ -50,9 +50,60 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
         return;
       }
 
+      // Get the order data first
+      final orderData = orderDoc.data() as Map<String, dynamic>;
+      orderData['id'] = orderDoc.id;
+      
+      // Get product image if available
+      if (orderData.containsKey('productId')) {
+        try {
+          final productDoc = await _firestore.collection('products').doc(orderData['productId']).get();
+          if (productDoc.exists) {
+            final productData = productDoc.data() as Map<String, dynamic>;
+            if (productData.containsKey('imageUrl')) {
+              orderData['productImage'] = productData['imageUrl'];
+            }
+          }
+        } catch (productError) {
+          print('Error fetching product data: $productError');
+          // Continue without the product image
+        }
+      }
+      
+      // Get comprehensive customer information from the users collection
+      if (orderData.containsKey('userId')) {
+        try {
+          final userDoc = await _firestore.collection('users').doc(orderData['userId']).get();
+          if (userDoc.exists) {
+            final userData = userDoc.data() as Map<String, dynamic>;
+            
+            // Get all available customer information
+            orderData['customerName'] = userData['name'] ?? userData['fullName'] ?? 'Unknown Customer';
+            orderData['customerContact'] = userData['phone'] ?? userData['phoneNumber'] ?? userData['contact'] ?? 'No contact info';
+            orderData['customerEmail'] = userData['email'] ?? orderData['userEmail'] ?? 'No email provided';
+            orderData['customerAddress'] = userData['address'] ?? userData['location'] ?? 'No address provided';
+            
+            // Try to get additional profile information if available
+            if (userData.containsKey('profile')) {
+              final profileData = userData['profile'] as Map<String, dynamic>?;
+              if (profileData != null) {
+                if (!orderData.containsKey('customerAddress') || orderData['customerAddress'] == 'No address provided') {
+                  orderData['customerAddress'] = profileData['address'] ?? 'No address provided';
+                }
+                if (!orderData.containsKey('customerContact') || orderData['customerContact'] == 'No contact info') {
+                  orderData['customerContact'] = profileData['phone'] ?? profileData['phoneNumber'] ?? 'No contact info';
+                }
+              }
+            }
+          }
+        } catch (userError) {
+          print('Error fetching user data: $userError');
+          // Continue with existing order data even if user fetch fails
+        }
+      }
+      
       setState(() {
-        _orderData = orderDoc.data() as Map<String, dynamic>;
-        _orderData!['id'] = orderDoc.id;
+        _orderData = orderData;
         _isLoading = false;
       });
     } catch (e) {
@@ -60,6 +111,66 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
         _errorMessage = 'Error loading order details: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _sendApprovalMessage(String customerId, String productName, String sellerId) async {
+    try {
+      // Check if there's an existing chat between this seller and customer
+      final chatQuery = await _firestore.collection('chats')
+          .where('sellerId', isEqualTo: sellerId)
+          .where('customerId', isEqualTo: customerId)
+          .limit(1)
+          .get();
+
+      String chatId;
+      final timestamp = FieldValue.serverTimestamp();
+      final approvalMessage = "Your order for $productName has been approved! Thank you for your purchase.";
+      
+      if (chatQuery.docs.isEmpty) {
+        // Create a new chat if none exists
+        final chatRef = _firestore.collection('chats').doc();
+        chatId = chatRef.id;
+        
+        await chatRef.set({
+          'sellerId': sellerId,
+          'customerId': customerId,
+          'createdAt': timestamp,
+          'lastMessage': approvalMessage,
+          'lastMessageTimestamp': timestamp,
+          'lastSenderId': sellerId,
+          'unreadCustomerCount': 1,
+          'unreadSellerCount': 0,
+        });
+      } else {
+        // Use existing chat
+        chatId = chatQuery.docs.first.id;
+        
+        // Update the existing chat with new message info
+        await _firestore.collection('chats').doc(chatId).update({
+          'lastMessage': approvalMessage,
+          'lastMessageTimestamp': timestamp,
+          'lastSenderId': sellerId,
+          'unreadCustomerCount': FieldValue.increment(1),
+        });
+      }
+      
+      // Add message to the chat's messages subcollection
+      await _firestore
+          .collection('chats')
+          .doc(chatId)
+          .collection('messages')
+          .add({
+            'text': approvalMessage,
+            'senderId': sellerId,
+            'timestamp': timestamp,
+            'isRead': false,
+          });
+      
+      print('Approval message sent to customer successfully');
+    } catch (e) {
+      print('Error sending approval message: $e');
+      // Don't throw error - this should be considered a non-critical failure
     }
   }
 
@@ -90,6 +201,7 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
       });
 
       // 3. Create a confirmation notification for the seller
+      String? sellerId;
       try {
         final User? currentUser = _auth.currentUser;
         if (currentUser != null) {
@@ -104,7 +216,7 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
           print('Approval: Seller query completed, found ${sellerQuery.docs.length} sellers');
             
           if (sellerQuery.docs.isNotEmpty) {
-            final sellerId = sellerQuery.docs.first.data()['id'];
+            sellerId = sellerQuery.docs.first.data()['id'];
             print('Approval: Found seller ID: $sellerId');
             
             // Create a notification document with specific ID to ensure creation
@@ -140,6 +252,15 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
         await _firestore.collection('seller_notifications').doc(widget.notificationData!['id']).update({
           'status': 'processed',
         });
+      }
+      
+      // 5. Send automatic message to customer about the approval
+      if (sellerId != null && _orderData!.containsKey('userId')) {
+        await _sendApprovalMessage(
+          _orderData!['userId'],
+          _orderData!['productName'],
+          sellerId
+        );
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -491,12 +612,12 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              _buildInfoRow('Customer ID', _orderData?['userId'] ?? 'Unknown'),
                               _buildInfoRow('Name', _orderData?['customerName'] ?? 'Unknown'),
-                              if (_orderData?['deliveryAddress'] != null)
-                                _buildInfoRow('Delivery Address', _orderData!['deliveryAddress']),
-                              if (_orderData?['meetupLocation'] != null)
-                                _buildInfoRow('Meetup Location', _orderData!['meetupLocation']),
+                              _buildInfoRow('Contact', _orderData?['customerContact'] ?? 'No contact info'),
+                              _buildInfoRow('Email', _orderData?['customerEmail'] ?? _orderData?['userEmail'] ?? 'No email provided'),
+                              _buildInfoRow('Address', _orderData?['customerAddress'] ?? 'No address provided'),
+                              if (_orderData?['deliveryMethod'] == 'Meet-up' && _orderData?['meetupLocation'] != null)
+                                _buildInfoRow('Meet-up Location', _orderData!['meetupLocation']),
                               
                               const SizedBox(height: 16),
                               

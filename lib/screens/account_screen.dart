@@ -121,8 +121,8 @@ class _AccountScreenState extends State<AccountScreen> {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Account'),
-          backgroundColor: Colors.green,
-          foregroundColor: Colors.white,
+         backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
         ),
         body: Center(
           child: Column(
@@ -157,8 +157,8 @@ class _AccountScreenState extends State<AccountScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Account'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
         elevation: 0,
       ),
       body: SingleChildScrollView(
@@ -249,7 +249,15 @@ class _AccountScreenState extends State<AccountScreen> {
                                 MaterialPageRoute(
                                   builder: (context) => const RegistrationScreen(),
                                 ),
-                              );
+                              ).then((result) {
+                                // Handle result from registration screen
+                                if (result != null && result is Map<String, dynamic> && result['success'] == true) {
+                                  setState(() {
+                                    _isRegisteredSeller = true;
+                                    _sellerId = result['sellerId'];
+                                  });
+                                }
+                              });
                             }
                           },
                           style: ElevatedButton.styleFrom(
@@ -312,12 +320,33 @@ class _AccountScreenState extends State<AccountScreen> {
                           const SizedBox(height: 8),
                           ElevatedButton(
                             onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => SellerProductScreen(sellerId: _sellerId),
-                                ),
-                              );
+                              if (_sellerId == null) {
+                                // If seller ID is null for some reason, refresh seller status before continuing
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Refreshing seller information...')),
+                                );
+                                _getCurrentUser().then((_) {
+                                  if (_sellerId != null) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => SellerProductScreen(sellerId: _sellerId),
+                                      ),
+                                    );
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Error: Seller ID not found. Please log out and log back in.')),
+                                    );
+                                  }
+                                });
+                              } else {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => SellerProductScreen(sellerId: _sellerId),
+                                  ),
+                                );
+                              }
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,

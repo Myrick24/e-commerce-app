@@ -9,7 +9,8 @@ import 'sellerproduct_screen.dart';
 import 'buy_now_screen.dart';
 import 'reserve_screen.dart';
 import 'cart_screen.dart';
-import 'notification_screen.dart'; // Added import for notification screen
+import 'notification_screen.dart';
+import 'messages_screen.dart'; // Keep import for messages screen
 import 'package:provider/provider.dart';
 import '../services/cart_service.dart';  // Fixed import path
 
@@ -29,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _sellerId;
   bool _isLoading = true;
   int _unreadNotificationsCount = 0;
+  int _unreadMessagesCount = 0;
 
   @override
   void initState() {
@@ -50,19 +52,21 @@ class _HomeScreenState extends State<HomeScreen> {
             .collection('sellers')
             .where('email', isEqualTo: _currentUser!.email)
             .limit(1)
-            .get();
-
-        if (sellerQuery.docs.isNotEmpty) {
+            .get();          if (sellerQuery.docs.isNotEmpty) {
           final sellerData = sellerQuery.docs.first.data();
           setState(() {
             _isRegisteredSeller = true;
-            _sellerId = sellerData['id'];
+            _sellerId = sellerData['id']; // Use the 'id' field from the seller document
           });
           
           // If user is a seller, check for unread notifications
           if (_sellerId != null) {
             _checkForUnreadNotifications(_sellerId!);
+            _checkForUnreadMessages(_sellerId!);
           }
+        } else {
+          // If not a seller, still check unread messages as customer
+          _checkForUnreadMessages(_currentUser!.uid);
         }
       } catch (e) {
         print('Error checking seller status: $e');
@@ -117,6 +121,48 @@ class _HomeScreenState extends State<HomeScreen> {
       print('Error checking unread notifications: $e');
     }
   }
+  
+  Future<void> _checkForUnreadMessages(String userId) async {
+    try {
+      final String fieldName = _isRegisteredSeller ? 'unreadSellerCount' : 'unreadCustomerCount';
+      final String idField = _isRegisteredSeller ? 'sellerId' : 'customerId';
+      
+      // Query chats collection for unread messages
+      final unreadChatsQuery = await _firestore
+          .collection('chats')
+          .where(idField, isEqualTo: userId)
+          .get();
+      
+      // Calculate total unread messages
+      int unreadCount = 0;
+      for (var doc in unreadChatsQuery.docs) {
+        unreadCount += (doc.data()[fieldName] as int? ?? 0);
+      }
+      
+      setState(() {
+        _unreadMessagesCount = unreadCount;
+      });
+      
+      // Set up a real-time listener for unread messages
+      _firestore
+          .collection('chats')
+          .where(idField, isEqualTo: userId)
+          .snapshots()
+          .listen((snapshot) {
+            int count = 0;
+            for (var doc in snapshot.docs) {
+              count += (doc.data()[fieldName] as int? ?? 0);
+            }
+            
+            setState(() {
+              _unreadMessagesCount = count;
+            });
+          });
+      
+    } catch (e) {
+      print('Error checking unread messages: $e');
+    }
+  }
 
   void _onItemTapped(int index) {
     if (index == 3) {
@@ -133,10 +179,18 @@ class _HomeScreenState extends State<HomeScreen> {
         MaterialPageRoute(builder: (context) => const NotificationScreen()),
       );
       return;
+    } else if (index == 1) {
+      // Messages tab - navigate to MessagesScreen
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const MessagesScreen()),
+      );
+      return;
     }
 
+    // Only home tab remains, set as selected
     setState(() {
-      _selectedIndex = index;
+      _selectedIndex = 0;
     });
   }
 
@@ -198,293 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.all(16.0),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  // Search Bar
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(25),
-                    ),
-                    child: const TextField(
-                      decoration: InputDecoration(
-                        icon: Icon(Icons.search),
-                        hintText: 'Search for farm products',
-                        border: InputBorder.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Banner
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Sell your farm products',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Connect directly with buyers',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.start, // Align to start
-                                children: [
-                                  Container(
-                                    width: 150, // Fixed width instead of Expanded
-                                    child: ElevatedButton(
-                                      onPressed: () {
-                                        // Check if user is logged in
-                                        if (_currentUser == null) {
-                                          // Navigate to login if not logged in
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) => const LoginScreen(),
-                                            ),
-                                          );
-                                        } else if (_isRegisteredSeller) {
-                                          // Navigate to product screen if already registered
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) => ProductScreen(sellerId: _sellerId),
-                                            ),
-                                          );
-                                        } else {
-                                          // Navigate to registration screen if not registered
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) => const RegistrationScreen(),
-                                            ),
-                                          );
-                                        }
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.white,
-                                        foregroundColor: Colors.green,
-                                      ),
-                                      child: Text(_currentUser == null
-                                          ? 'Login to Sell'
-                                          : (_isRegisteredSeller ? 'Sell Now' : 'Register Now')),
-                                    ),
-                                  ),
-                                  // Rest of row remains empty since we removed the second button
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(
-                            Icons.smartphone,
-                            size: 40,
-                            color: Colors.green,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Categories Section
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Categories',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {},
-                        child: const Text('See All >'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Categories Icons
-                  SizedBox(
-                    height: 80,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildCategoryItem(Icons.apple, 'Fruits', Colors.orange),
-                        _buildCategoryItem(Icons.set_meal, 'Vegetables', Colors.green),
-                        _buildCategoryItem(Icons.grain, 'Grains', Colors.amber),
-                        _buildCategoryItem(Icons.store, 'Shops', Colors.blue),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Featured Products Section
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Featured Products',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {},
-                        child: const Text('See All >'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ]),
-              ),
-            ),
-            // Products grid as a separate sliver
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              sliver: StreamBuilder<QuerySnapshot>(
-                stream: _firestore.collection('products')
-                    .orderBy('createdAt', descending: true)
-                    .limit(10)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const SliverToBoxAdapter(
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    // Error handling
-                    return SliverToBoxAdapter(
-                      child: Center(child: Text('Error: ${snapshot.error}')),
-                    );
-                  }
-
-                  final products = snapshot.data?.docs ?? [];
-
-                  if (products.isEmpty) {
-                    return SliverToBoxAdapter(
-                      child: Center(
-                        child: Column(
-                          children: [
-                            const SizedBox(height: 20),
-                            Icon(
-                              Icons.inventory,
-                              size: 64,
-                              color: Colors.grey[400],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'No products available yet',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-
-                  return SliverGrid(
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      childAspectRatio: 0.575, 
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                    ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final product = products[index].data() as Map<String, dynamic>;
-
-                        // Determine product color based on organic status
-                        final Color productColor = product['isOrganic'] == true
-                            ? Colors.green
-                            : Colors.orange;
-
-                        // Format price with peso sign
-                        final double price = product['price'] is int
-                            ? (product['price'] as int).toDouble()
-                            : product['price'] as double;
-                        final String priceDisplay = '₱${price.toString()}';
-
-                        // Handle quantity and stock
-                        final double quantity = product['quantity'] is int
-                            ? (product['quantity'] as int).toDouble()
-                            : product['quantity'] as double;
-
-                        final double? currentStock = product['currentStock'] != null
-                            ? (product['currentStock'] is int
-                                ? (product['currentStock'] as int).toDouble()
-                                : product['currentStock'] as double)
-                            : quantity;
-
-                        // Display the product card with current stock information
-                        return _buildProductCard(
-                          product['name'] ?? 'Product Name',
-                          priceDisplay,
-                          Icons.shopping_basket,
-                          productColor,
-                          '4.5', // Default rating
-                          // Show remaining stock in the weight/unit field
-                          '${currentStock?.toStringAsFixed(0) ?? quantity.toStringAsFixed(0)} ${product['unit'] ?? ''} left',
-                          allowsReservation: product['allowsReservation'] ?? true,
-                          currentStock: currentStock,
-                          product: product,
-                          productId: products[index].id,
-                        );
-                      },
-                      childCount: products.length,
-                    ),
-                  );
-                },
-              ),
-            ),
-            // Bottom padding
-            const SliverToBoxAdapter(
-              child: SizedBox(height: 20),
-            ),
-          ],
-        ),
-      ),
+      body: _buildHomeContent(), // Always show home content
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         selectedItemColor: Colors.green,
@@ -496,9 +264,37 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.home),
             label: 'Home',
           ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.explore),
-            label: 'Explore',
+          BottomNavigationBarItem(
+            icon: Stack(
+              children: [
+                const Icon(Icons.message),
+                if (_unreadMessagesCount > 0)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(1),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 12,
+                        minHeight: 12,
+                      ),
+                      child: Text(
+                        _unreadMessagesCount > 9 ? '9+' : '$_unreadMessagesCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 8,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            label: 'Messages',
           ),
           BottomNavigationBarItem(
             icon: Stack(
@@ -535,6 +331,310 @@ class _HomeScreenState extends State<HomeScreen> {
           const BottomNavigationBarItem(
             icon: Icon(Icons.person),
             label: 'Profile',
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildHomeContent() {
+    return SafeArea(
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.all(16.0),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                // Search Bar
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  child: const TextField(
+                    decoration: InputDecoration(
+                      icon: Icon(Icons.search),
+                      hintText: 'Search for farm products',
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Banner
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Sell your farm products',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Connect directly with buyers',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.start, // Align to start
+                              children: [
+                                Container(
+                                  width: 150, // Fixed width instead of Expanded
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      // Check if user is logged in
+                                      if (_currentUser == null) {
+                                        // Navigate to login if not logged in
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => const LoginScreen(),
+                                          ),
+                                        );
+                                      } else if (_isRegisteredSeller) {
+                                        // Navigate to product screen if already registered
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => ProductScreen(sellerId: _sellerId),
+                                          ),
+                                        );
+                                      } else {
+                                        // Navigate to registration screen if not registered
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => const RegistrationScreen(),
+                                          ),
+                                        ).then((result) {
+                                          // Handle result from registration screen
+                                          if (result != null && result is Map<String, dynamic> && result['success'] == true) {
+                                            setState(() {
+                                              _isRegisteredSeller = true;
+                                              _sellerId = result['sellerId'];
+                                            });
+                                            
+                                            // Check for notifications for the new seller
+                                            if (_sellerId != null) {
+                                              _checkForUnreadNotifications(_sellerId!);
+                                              _checkForUnreadMessages(_sellerId!);
+                                            }
+                                          }
+                                        });
+                                      }
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.white,
+                                      foregroundColor: Colors.green,
+                                    ),
+                                    child: Text(_currentUser == null
+                                        ? 'Login to Sell'
+                                        : (_isRegisteredSeller ? 'Sell Now' : 'Register Now')),
+                                  ),
+                                ),
+                                // Rest of row remains empty since we removed the second button
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.smartphone,
+                          size: 40,
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Categories Section
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Categories',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {},
+                      child: const Text('See All >'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // Categories Icons
+                SizedBox(
+                  height: 80,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildCategoryItem(Icons.apple, 'Fruits', Colors.orange),
+                      _buildCategoryItem(Icons.set_meal, 'Vegetables', Colors.green),
+                      _buildCategoryItem(Icons.grain, 'Grains', Colors.amber),
+                      _buildCategoryItem(Icons.store, 'Shops', Colors.blue),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Featured Products Section
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Featured Products',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {},
+                      child: const Text('See All >'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ]),
+            ),
+          ),
+          // Products grid as a separate sliver
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            sliver: StreamBuilder<QuerySnapshot>(
+              stream: _firestore.collection('products')
+                  .orderBy('createdAt', descending: true)
+                  .limit(10)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SliverToBoxAdapter(
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  // Error handling
+                  return SliverToBoxAdapter(
+                    child: Center(child: Text('Error: ${snapshot.error}')),
+                  );
+                }
+
+                final products = snapshot.data?.docs ?? [];
+
+                if (products.isEmpty) {
+                  return SliverToBoxAdapter(
+                    child: Center(
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 20),
+                          Icon(
+                            Icons.inventory,
+                            size: 64,
+                            color: Colors.grey[400],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'No products available yet',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 0.575, 
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final product = products[index].data() as Map<String, dynamic>;
+
+                      // Determine product color based on organic status
+                      final Color productColor = product['isOrganic'] == true
+                          ? Colors.green
+                          : Colors.orange;
+
+                      // Format price with peso sign
+                      final double price = product['price'] is int
+                          ? (product['price'] as int).toDouble()
+                          : product['price'] as double;
+                      final String priceDisplay = '₱${price.toString()}';
+
+                      // Handle quantity and stock
+                      final double quantity = product['quantity'] is int
+                          ? (product['quantity'] as int).toDouble()
+                          : product['quantity'] as double;
+
+                      final double? currentStock = product['currentStock'] != null
+                          ? (product['currentStock'] is int
+                              ? (product['currentStock'] as int).toDouble()
+                              : product['currentStock'] as double)
+                          : quantity;
+
+                      // Display the product card with current stock information
+                      return _buildProductCard(
+                        product['name'] ?? 'Product Name',
+                        priceDisplay,
+                        Icons.shopping_basket,
+                        productColor,
+                        '4.5', // Default rating
+                        // Show remaining stock in the weight/unit field
+                        '${currentStock?.toStringAsFixed(0) ?? quantity.toStringAsFixed(0)} ${product['unit'] ?? ''} left',
+                        allowsReservation: product['allowsReservation'] ?? true,
+                        currentStock: currentStock,
+                        product: product,
+                        productId: products[index].id,
+                      );
+                    },
+                    childCount: products.length,
+                  ),
+                );
+              },
+            ),
+          ),
+          // Bottom padding
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 20),
           ),
         ],
       ),
