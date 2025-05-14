@@ -6,6 +6,7 @@ import 'registration_screen.dart';
 import 'product_screen.dart';
 import 'sellerproduct_screen.dart';
 import 'checkout_screen.dart'; // Import the checkout screen instead of cart screen
+import 'virtual_wallet_screen.dart'; // Import the digital wallet screen
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({Key? key}) : super(key: key);
@@ -455,6 +456,18 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
 
             // Settings options
+            _buildSettingsItem(
+              icon: Icons.account_balance_wallet,
+              title: 'Digital Wallet',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const VirtualWalletScreen(),
+                  ),
+                );
+              },
+            ),
             _buildSettingsItem(
               icon: Icons.security,
               title: 'Security Settings',

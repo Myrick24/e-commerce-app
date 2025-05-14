@@ -289,6 +289,11 @@ class _ProductScreenState extends State<ProductScreen> {
       final double price = double.parse(_priceController.text.trim());
       final double quantity = double.parse(_quantityController.text.trim());
       
+      // Calculate 3% commission
+      final double totalValue = price * quantity;
+      final double commissionRate = 0.03; // 3%
+      final double commissionAmount = totalValue * commissionRate;
+      
       // Create a product document in Firestore
       await _firestore.collection('products').doc(productId).set({
         'id': productId,
@@ -307,15 +312,55 @@ class _ProductScreenState extends State<ProductScreen> {
         'currentStock': quantity, // Ensure this is a double
         'reserved': 0.0, // Explicitly use 0.0 for double
         'imageUrl': _imageUrl, // Add image URL
+        'commission': commissionAmount, // Add commission amount
       }).catchError((error) {
         // Handle Firestore permission error based on the memory
         print('Firestore error: $error');
         throw error;
       });
       
+      // Process the commission
+      // First, check if the wallet exists for the user, otherwise create it
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final walletDoc = await _firestore.collection('wallets').doc(user.uid).get();
+        
+        if (walletDoc.exists) {
+          // Update wallet balance
+          await _firestore.collection('wallets').doc(user.uid).update({
+            'balance': FieldValue.increment(commissionAmount),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          // Create new wallet
+          await _firestore.collection('wallets').doc(user.uid).set({
+            'balance': commissionAmount,
+            'userId': user.uid,
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+        
+        // Record the transaction
+        await _firestore.collection('walletTransactions').add({
+          'userId': user.uid,
+          'amount': commissionAmount,
+          'productId': productId,
+          'productName': _productNameController.text.trim(),
+          'description': '3% Commission for product: ${_productNameController.text.trim()}',
+          'type': 'commission',
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Product added successfully!')),
+          SnackBar(
+            content: Text(
+              'Product added successfully! Commission (3%): ₱${commissionAmount.toStringAsFixed(2)}'
+            ),
+            duration: const Duration(seconds: 4),
+          ),
         );
         
         // Clear form for next product
