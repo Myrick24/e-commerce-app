@@ -42,8 +42,13 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs access to photos for product images</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs access to camera for taking product photos</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs access to microphone when taking videos of products</string>
 </dict>
 </plist>

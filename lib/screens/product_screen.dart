@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'dart:async';
 import 'package:intl/intl.dart';
 
 /*
@@ -26,6 +30,7 @@ Fields:
 - allowsReservation (boolean): Whether the product can be reserved
 - currentStock (number): Current available stock (may be different from quantity)
 - reserved (number): Amount of product currently reserved
+- imageUrl (string): URL to the product image stored in Firebase Storage
 */
 
 class ProductScreen extends StatefulWidget {
@@ -40,6 +45,8 @@ class ProductScreen extends StatefulWidget {
 class _ProductScreenState extends State<ProductScreen> {
   final _formKey = GlobalKey<FormState>();
   final _firestore = FirebaseFirestore.instance;
+  final _storage = FirebaseStorage.instance;
+  final _imagePicker = ImagePicker();
   
   // Form controllers
   final _productNameController = TextEditingController();
@@ -48,6 +55,12 @@ class _ProductScreenState extends State<ProductScreen> {
   final _quantityController = TextEditingController();
   final _unitController = TextEditingController();
   final _availableDateController = TextEditingController();
+  
+  // Image file
+  File? _imageFile;
+  String? _imageUrl;
+  bool _isUploading = false;
+  double _uploadProgress = 0;
   
   // Product category
   String _selectedCategory = 'Vegetables'; // Default category
@@ -102,6 +115,144 @@ class _ProductScreenState extends State<ProductScreen> {
     }
   }
   
+  Future<void> _pickImage() async {
+    // Show a modal bottom sheet with options for camera or gallery
+    await showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Wrap(
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Photo Gallery'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _getImage(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('Camera'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _getImage(ImageSource.camera);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _getImage(ImageSource source) async {
+    try {
+      final pickedFile = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 85, // Adjust quality to balance file size and image quality
+      );
+      
+      if (pickedFile != null) {
+        setState(() {
+          _imageFile = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      print('Error picking image: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error selecting image: ${e.toString()}')),
+      );
+    }
+  }
+
+  Future<void> _uploadImage({int retryCount = 0}) async {
+    if (_imageFile == null) return;
+
+    setState(() {
+      _isUploading = true;
+    });
+
+    try {
+      // Generate a unique filename
+      final fileName = 'product_${DateTime.now().millisecondsSinceEpoch}';
+      final ref = _storage.ref().child('product_images/$fileName');
+      
+      // Show upload progress in debug console
+      // Determine file type based on extension
+      String contentType = 'image/jpeg'; // Default
+      if (_imageFile!.path.toLowerCase().endsWith('.png')) {
+        contentType = 'image/png';
+      } else if (_imageFile!.path.toLowerCase().endsWith('.gif')) {
+        contentType = 'image/gif';
+      } else if (_imageFile!.path.toLowerCase().endsWith('.webp')) {
+        contentType = 'image/webp';
+      }
+      
+      final uploadTask = ref.putFile(
+        _imageFile!,
+        SettableMetadata(
+          contentType: contentType,
+          customMetadata: {
+            'uploadedBy': FirebaseAuth.instance.currentUser?.uid ?? 'unknown',
+            'uploadDate': DateTime.now().toIso8601String(),
+          },
+        ),
+      );
+      
+      uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+        final progress = snapshot.bytesTransferred / snapshot.totalBytes;
+        print('Upload progress: ${(progress * 100).toStringAsFixed(2)}%');
+        setState(() {
+          _uploadProgress = progress;
+        });
+      });
+      
+      // Wait for the upload to complete with timeout
+      await uploadTask.timeout(
+        const Duration(seconds: 60), // Set a reasonable timeout
+        onTimeout: () {
+          throw TimeoutException('Image upload timed out');
+        },
+      );
+      
+      // Get download URL
+      _imageUrl = await ref.getDownloadURL();
+      print('Image uploaded successfully. URL: $_imageUrl');
+    } catch (e) {
+      print('Error uploading image: $e');
+      
+      // Try to recover if the error might be temporary (network issues)
+      if (retryCount < 2 && (e.toString().contains('network') || 
+                            e.toString().contains('timeout') ||
+                            e.toString().contains('socket'))) {
+        // Wait before retrying
+        await Future.delayed(Duration(seconds: 2));
+        return _uploadImage(retryCount: retryCount + 1);
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Image upload failed: ${e.toString()}'),
+          action: SnackBarAction(
+            label: 'RETRY',
+            onPressed: () => _uploadImage(),
+          ),
+          duration: Duration(seconds: 10),
+        ),
+      );
+      
+      // Set _imageUrl to null so we know upload failed
+      _imageUrl = null;
+    } finally {
+      setState(() {
+        _isUploading = false;
+      });
+    }
+  }
+  
   @override
   void dispose() {
     _productNameController.dispose();
@@ -123,6 +274,11 @@ class _ProductScreenState extends State<ProductScreen> {
     });
     
     try {
+      // Upload image if available
+      if (_imageFile != null) {
+        await _uploadImage();
+      }
+
       // Generate a unique ID for the product
       final String productId = DateTime.now().millisecondsSinceEpoch.toString();
       
@@ -150,6 +306,7 @@ class _ProductScreenState extends State<ProductScreen> {
         'allowsReservation': _allowsReservation,
         'currentStock': quantity, // Ensure this is a double
         'reserved': 0.0, // Explicitly use 0.0 for double
+        'imageUrl': _imageUrl, // Add image URL
       }).catchError((error) {
         // Handle Firestore permission error based on the memory
         print('Firestore error: $error');
@@ -173,6 +330,8 @@ class _ProductScreenState extends State<ProductScreen> {
           _isOrganic = false;
           _selectedCategory = 'Vegetables';
           _allowsReservation = true;
+          _imageFile = null;
+          _imageUrl = null;
         });
       }
     } catch (e) {
@@ -222,14 +381,50 @@ class _ProductScreenState extends State<ProductScreen> {
                     color: Colors.grey[200],
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Center(
-                    child: IconButton(
-                      icon: const Icon(Icons.add_a_photo, size: 40),
-                      onPressed: () {
-                        // Image upload functionality
-                      },
-                    ),
-                  ),
+                  child: _imageFile == null
+                      ? Center(
+                          child: IconButton(
+                            icon: const Icon(Icons.add_a_photo, size: 40),
+                            onPressed: _pickImage,
+                          ),
+                        )
+                      : Stack(
+                          children: [
+                            Positioned.fill(
+                              child: Image.file(
+                                _imageFile!,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                onPressed: () {
+                                  setState(() {
+                                    _imageFile = null;
+                                  });
+                                },
+                              ),
+                            ),
+                            // Show upload progress if uploading
+                            if (_isUploading)
+                              Positioned(
+                                bottom: 0,
+                                left: 0,
+                                right: 0,
+                                child: Container(
+                                  height: 5,
+                                  child: LinearProgressIndicator(
+                                    value: _uploadProgress,
+                                    backgroundColor: Colors.grey[300],
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                 ),
                 const SizedBox(height: 20),
                 

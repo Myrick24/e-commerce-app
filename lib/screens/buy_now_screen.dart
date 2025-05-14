@@ -53,8 +53,7 @@ class _BuyNowScreenState extends State<BuyNowScreen> {
     
     final cartService = Provider.of<CartService>(context, listen: false);
     
-    try {
-      // Create cart item
+    try {      // Create cart item
       final cartItem = CartItem(
         id: 'item_${DateTime.now().millisecondsSinceEpoch}',
         productId: widget.productId,
@@ -66,6 +65,7 @@ class _BuyNowScreenState extends State<BuyNowScreen> {
         quantity: _quantity,
         unit: widget.product['unit'] ?? 'piece',
         isReservation: false,
+        imageUrl: widget.product['imageUrl'],
       );
       
       // Add to cart - this will update the database stock
@@ -263,23 +263,41 @@ class _BuyNowScreenState extends State<BuyNowScreen> {
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Product Image
+          children: [            // Product Image
             Container(
               height: 300,
               width: double.infinity,
               color: Colors.grey[200],
-              child: Image.asset(
-                'assets/images/rice.jpg',
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Center(
-                  child: Icon(
-                    Icons.shopping_basket,
-                    size: 80,
-                    color: isOrganic ? Colors.green : Colors.orange,
+              child: widget.product['imageUrl'] != null && widget.product['imageUrl'].toString().isNotEmpty
+                ? Image.network(
+                    widget.product['imageUrl'],
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Center(
+                        child: CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                            ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                            : null,
+                          valueColor: AlwaysStoppedAnimation<Color>(isOrganic ? Colors.green : Colors.orange),
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) => Center(
+                      child: Icon(
+                        Icons.shopping_basket,
+                        size: 80,
+                        color: isOrganic ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                  )
+                : Center(
+                    child: Icon(
+                      Icons.shopping_basket,
+                      size: 80,
+                      color: isOrganic ? Colors.green : Colors.orange,
+                    ),
                   ),
-                ),
-              ),
             ),
             
             Padding(

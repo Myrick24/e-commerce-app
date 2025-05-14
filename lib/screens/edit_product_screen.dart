@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'dart:async';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class EditProductScreen extends StatefulWidget {
   final String productId;
@@ -19,6 +24,8 @@ class EditProductScreen extends StatefulWidget {
 class _EditProductScreenState extends State<EditProductScreen> {
   final _formKey = GlobalKey<FormState>();
   final _firestore = FirebaseFirestore.instance;
+  final _storage = FirebaseStorage.instance;
+  final _imagePicker = ImagePicker();
   
   // Form controllers
   final _productNameController = TextEditingController();
@@ -27,6 +34,11 @@ class _EditProductScreenState extends State<EditProductScreen> {
   final _quantityController = TextEditingController();
   final _unitController = TextEditingController();
   final _availableDateController = TextEditingController();
+  
+  // Image handling
+  File? _imageFile;
+  String? _imageUrl;
+  bool _isImageChanged = false;
   
   // Product category
   String _selectedCategory = 'Vegetables';
@@ -61,6 +73,9 @@ class _EditProductScreenState extends State<EditProductScreen> {
         // Populate form fields with existing data
         _productNameController.text = data['name'] ?? '';
         _productDescriptionController.text = data['description'] ?? '';
+        
+        // Get image URL if it exists
+        _imageUrl = data['imageUrl'];
         
         // Handle numeric fields
         if (data['price'] != null) {
@@ -128,6 +143,130 @@ class _EditProductScreenState extends State<EditProductScreen> {
       _availableDateController.text = DateFormat('MM/dd/yyyy').format(_selectedDate!);
     }
   }
+    Future<void> _pickImage() async {
+    // Show a modal bottom sheet with options for camera or gallery
+    await showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Wrap(
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Photo Gallery'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _getImage(ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('Camera'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _getImage(ImageSource.camera);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _getImage(ImageSource source) async {
+    try {
+      final pickedFile = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 85, // Adjust quality to balance file size and image quality
+      );
+      
+      if (pickedFile != null) {
+        setState(() {
+          _imageFile = File(pickedFile.path);
+          _isImageChanged = true;
+        });
+      }
+    } catch (e) {
+      print('Error picking image: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error selecting image: ${e.toString()}')),
+      );
+    }
+  }
+  Future<void> _uploadImage({int retryCount = 0}) async {
+    if (_imageFile == null) return;
+
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
+      // Generate a unique filename that includes the product ID
+      final fileName = 'product_${widget.productId}_${DateTime.now().millisecondsSinceEpoch}';
+      final ref = _storage.ref().child('product_images/$fileName');
+      
+      // Show upload progress in debug console
+      final uploadTask = ref.putFile(
+        _imageFile!,
+        SettableMetadata(
+          contentType: 'image/jpeg', // Assuming JPEG for simplicity
+          customMetadata: {
+            'productId': widget.productId,
+            'uploadDate': DateTime.now().toIso8601String(),
+          },
+        ),
+      );
+      
+      uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+        final progress = snapshot.bytesTransferred / snapshot.totalBytes;
+        print('Upload progress: ${(progress * 100).toStringAsFixed(2)}%');
+      });
+      
+      // Wait for the upload to complete with timeout
+      await uploadTask.timeout(
+        const Duration(seconds: 60), // Set a reasonable timeout
+        onTimeout: () {
+          throw TimeoutException('Image upload timed out');
+        },
+      );
+      
+      // Get download URL
+      _imageUrl = await ref.getDownloadURL();
+      print('Image uploaded successfully. URL: $_imageUrl');
+    } catch (e) {
+      print('Error uploading image: $e');
+      
+      // Try to recover if the error might be temporary
+      if (retryCount < 2 && (e.toString().contains('network') || 
+                            e.toString().contains('timeout') ||
+                            e.toString().contains('socket'))) {
+        // Wait before retrying
+        await Future.delayed(Duration(seconds: 2));
+        return _uploadImage(retryCount: retryCount + 1);
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Image upload failed: ${e.toString()}'),
+          action: SnackBarAction(
+            label: 'RETRY',
+            onPressed: () => _uploadImage(),
+          ),
+          duration: Duration(seconds: 10),
+        ),
+      );
+      
+      // Set _imageUrl to null so we know upload failed
+      _imageUrl = null;
+    } finally {
+      setState(() {
+        _isUpdating = false;
+      });
+    }
+  }
   
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
@@ -177,12 +316,17 @@ class _EditProductScreenState extends State<EditProductScreen> {
     });
     
     try {
+      // Upload new image if selected
+      if (_isImageChanged && _imageFile != null) {
+        await _uploadImage();
+      }
+
       // Parse numeric values as doubles
       final double price = double.parse(_priceController.text.trim());
       final double quantity = double.parse(_quantityController.text.trim());
       
-      // Update existing product in Firestore
-      await _firestore.collection('products').doc(widget.productId).update({
+      // Create update data
+      final Map<String, dynamic> updateData = {
         'name': _productNameController.text.trim(),
         'description': _productDescriptionController.text.trim(),
         'price': price,
@@ -196,7 +340,15 @@ class _EditProductScreenState extends State<EditProductScreen> {
         'reserved': _reserved,
         'createdAt': _createdAt,
         'lastUpdated': DateTime.now().toIso8601String(), // Add last updated timestamp
-      });
+      };
+      
+      // Add imageUrl to update data if it exists
+      if (_imageUrl != null) {
+        updateData['imageUrl'] = _imageUrl;
+      }
+      
+      // Update existing product in Firestore
+      await _firestore.collection('products').doc(widget.productId).update(updateData);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -258,14 +410,70 @@ class _EditProductScreenState extends State<EditProductScreen> {
                     color: Colors.grey[200],
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Center(
-                    child: IconButton(
-                      icon: const Icon(Icons.add_a_photo, size: 40),
-                      onPressed: () {
-                        // Image upload functionality
-                      },
-                    ),
-                  ),
+                  child: _imageFile != null
+                    ? Stack(
+                        children: [
+                          Positioned.fill(
+                            child: Image.file(
+                              _imageFile!,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () {
+                                setState(() {
+                                  _imageFile = null;
+                                  _isImageChanged = true;
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      )
+                    : _imageUrl != null && _imageUrl!.isNotEmpty
+                      ? Stack(
+                          children: [
+                            Positioned.fill(
+                              child: Image.network(
+                                _imageUrl!,
+                                fit: BoxFit.cover,
+                                loadingBuilder: (context, child, loadingProgress) {
+                                  if (loadingProgress == null) return child;
+                                  return Center(
+                                    child: CircularProgressIndicator(
+                                      value: loadingProgress.expectedTotalBytes != null
+                                        ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                        : null,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                onPressed: () {
+                                  setState(() {
+                                    _imageUrl = null;
+                                    _isImageChanged = true;
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        )
+                      : Center(
+                          child: IconButton(
+                            icon: const Icon(Icons.add_a_photo, size: 40),
+                            onPressed: _pickImage,
+                          ),
+                        ),
                 ),
                 const SizedBox(height: 20),
                 

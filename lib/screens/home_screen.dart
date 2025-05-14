@@ -615,7 +615,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       return _buildProductCard(
                         product['name'] ?? 'Product Name',
                         priceDisplay,
-                        Icons.shopping_basket,
+                        product['isOrganic'] == true ? Icons.eco : Icons.shopping_basket, // Fallback icon
                         productColor,
                         '4.5', // Default rating
                         // Show remaining stock in the weight/unit field
@@ -695,13 +695,46 @@ class _HomeScreenState extends State<HomeScreen> {
                     topRight: Radius.circular(4),
                   ),
                 ),
-                child: Center(
-                  child: Icon(
-                    icon,
-                    size: 50,
-                    color: color,
-                  ),
-                ),
+                child: product['imageUrl'] != null && product['imageUrl'].toString().isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(4),
+                        topRight: Radius.circular(4),
+                      ),
+                      child: Image.network(
+                        product['imageUrl'],
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Center(
+                            child: CircularProgressIndicator(
+                              value: loadingProgress.expectedTotalBytes != null
+                                ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                : null,
+                              valueColor: AlwaysStoppedAnimation<Color>(color),
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return Center(
+                            child: Icon(
+                              icon,
+                              size: 50,
+                              color: color,
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  : Center(
+                      child: Icon(
+                        icon,
+                        size: 50,
+                        color: color,
+                      ),
+                    ),
               ),
 
               // Stock Status Indicator

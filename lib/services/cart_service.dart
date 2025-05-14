@@ -12,6 +12,7 @@ class CartItem {
   final String unit;
   final bool isReservation;
   final DateTime? pickupDate;
+  final String? imageUrl;
 
   CartItem({
     required this.id,
@@ -23,8 +24,8 @@ class CartItem {
     required this.unit,
     required this.isReservation,
     this.pickupDate,
+    this.imageUrl,
   });
-
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -37,9 +38,9 @@ class CartItem {
       'isReservation': isReservation,
       'pickupDate': pickupDate?.toIso8601String(),
       'addedAt': DateTime.now().toIso8601String(),
+      'imageUrl': imageUrl,
     };
   }
-
   factory CartItem.fromMap(Map<String, dynamic> map) {
     DateTime? pickupDate;
     if (map['pickupDate'] != null) {
@@ -58,6 +59,7 @@ class CartItem {
       unit: map['unit'] ?? '',
       isReservation: map['isReservation'] ?? false,
       pickupDate: pickupDate,
+      imageUrl: map['imageUrl'],
     );
   }
 }

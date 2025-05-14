@@ -287,8 +287,7 @@ class _CartScreenState extends State<CartScreen> {
         padding: const EdgeInsets.all(8.0),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Product image / icon
+          children: [            // Product image / icon
             Container(
               width: 80,
               height: 80,
@@ -296,13 +295,45 @@ class _CartScreenState extends State<CartScreen> {
                 color: item.isReservation ? Colors.blue.withOpacity(0.1) : Colors.green.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Center(
-                child: Icon(
-                  Icons.shopping_basket,
-                  size: 40,
-                  color: item.isReservation ? Colors.blue : Colors.green,
-                ),
-              ),
+              child: item.imageUrl != null && item.imageUrl!.isNotEmpty
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      item.imageUrl!,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Center(
+                          child: CircularProgressIndicator(
+                            value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                              : null,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              item.isReservation ? Colors.blue : Colors.green
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return Center(
+                          child: Icon(
+                            Icons.shopping_basket,
+                            size: 40,
+                            color: item.isReservation ? Colors.blue : Colors.green,
+                          ),
+                        );
+                      },
+                    ),
+                  )
+                : Center(
+                    child: Icon(
+                      Icons.shopping_basket,
+                      size: 40,
+                      color: item.isReservation ? Colors.blue : Colors.green,
+                    ),
+                  ),
             ),
             const SizedBox(width: 16),
             

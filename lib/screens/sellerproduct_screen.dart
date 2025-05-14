@@ -232,22 +232,29 @@ class _SellerProductScreenState extends State<SellerProductScreen> {
                           return Card(
                             margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                             child: ListTile(
-                              contentPadding: const EdgeInsets.all(16),
-                              leading: Container(
+                              contentPadding: const EdgeInsets.all(16),                              leading: Container(
                                 width: 60,
                                 height: 60,
                                 decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
                                   color: product['isOrganic'] == true
                                       ? Colors.green.withOpacity(0.2)
                                       : Colors.orange.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(8),
+                                  image: product['imageUrl'] != null && product['imageUrl'].toString().isNotEmpty
+                                      ? DecorationImage(
+                                          image: NetworkImage(product['imageUrl']),
+                                          fit: BoxFit.cover,
+                                        )
+                                      : null,
                                 ),
-                                child: Icon(
-                                  Icons.shopping_basket,
-                                  color: product['isOrganic'] == true
-                                      ? Colors.green
-                                      : Colors.orange,
-                                ),
+                                child: product['imageUrl'] == null || product['imageUrl'].toString().isEmpty
+                                    ? Icon(
+                                        Icons.shopping_basket,
+                                        color: product['isOrganic'] == true
+                                            ? Colors.green
+                                            : Colors.orange,
+                                      )
+                                    : null,
                               ),
                               title: Text(
                                 product['name'] ?? 'Unknown Product',
