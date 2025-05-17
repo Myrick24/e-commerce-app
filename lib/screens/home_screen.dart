@@ -177,7 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // Notifications tab
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => const NotificationScreen()),
+        MaterialPageRoute(builder: (context) => const NotificationScreen()), 
       );
       return;
     } else if (index == 1) {

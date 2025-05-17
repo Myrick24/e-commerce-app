@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import 'registration_screen.dart';
 import 'product_screen.dart';
@@ -8,6 +9,7 @@ import 'sellerproduct_screen.dart';
 import 'checkout_screen.dart'; // Import the checkout screen instead of cart screen
 import 'virtual_wallet_screen.dart'; // Import the digital wallet screen
 import 'notifications/account_notifications.dart';
+import '../services/notification_service.dart'; // Import our notification service
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({Key? key}) : super(key: key);
@@ -30,7 +32,15 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   void initState() {
     super.initState();
+    _loadNotificationState();
     _getCurrentUser();
+  }
+  
+  // Load notification state using NotificationService
+  // We don't need this method anymore since we're using specific notification keys
+  // This is kept as a stub for backward compatibility
+  Future<void> _loadNotificationState() async {
+    // No implementation needed - we're using specific notification keys now
   }
 
   Future<void> _getCurrentUser() async {
@@ -38,7 +48,14 @@ class _AccountScreenState extends State<AccountScreen> {
       _isLoading = true;
     });
 
+    // Reset notification flag if user changes
+    final oldUser = _currentUser;
     _currentUser = _auth.currentUser;
+    
+    // If the user changed, reset the notification flag
+    if (_currentUser != null && (oldUser == null || oldUser.uid != _currentUser!.uid)) {
+      _loadNotificationState(); // Load notification state for the new user
+    }
     
     if (_currentUser != null) {
       try {
@@ -78,14 +95,15 @@ class _AccountScreenState extends State<AccountScreen> {
                 _isSellerApproved = isApproved;
               });
               
+              // Always check notifications - our updated methods will ensure they only show once
               // If seller status has changed since last check, show an appropriate notification
               if (_isSellerApproved && !previousApprovalStatus) {
-                _showStatusChangeNotification(isApproved: true);
+                await _showStatusChangeNotification(isApproved: true);
               } else if (!_isSellerApproved && previousApprovalStatus) {
-                _showStatusChangeNotification(isApproved: false);
+                await _showStatusChangeNotification(isApproved: false);
               } else if (!_isSellerApproved && sellerStatus == 'pending') {
                 // Show pending status notification
-                _showPendingStatusReminder();
+                await _showPendingStatusReminder();
               }
             }
           } catch (sellerQueryError) {
@@ -106,57 +124,112 @@ class _AccountScreenState extends State<AccountScreen> {
   }
   
   // Method to show status change notification
-  void _showStatusChangeNotification({required bool isApproved}) {
+  Future<void> _showStatusChangeNotification({required bool isApproved}) async {
     if (!mounted) return;
     
-    Future.delayed(Duration(milliseconds: 500), () {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: isApproved ? Colors.green : Colors.red,
-          content: Text(
-            isApproved 
-              ? 'Your seller account has been approved! You can now add products.'
-              : 'Your seller account status has changed. Please check details.',
-            style: TextStyle(color: Colors.white),
-          ),
-          duration: Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'VIEW',
-            textColor: Colors.white,
-            onPressed: () {
-              // Navigate to notification details or seller settings
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => AccountNotifications()),
-              );
-            },
-          ),
-        ),
-      );
-    });
+    // Create a unique notification key that includes the approval status
+    final statusKey = isApproved ? 'approved' : 'changed';
+    final notificationKey = 'seller_status_$statusKey';
+    
+    // Check if we've already shown this specific notification
+    bool alreadyShown = await NotificationService.hasShownSpecificNotification(notificationKey);
+    
+    // Only proceed if we haven't shown this notification yet
+    if (!alreadyShown) {
+      // Mark this specific notification type as shown
+      await NotificationService.markSpecificNotificationAsShown(notificationKey);
+      
+      // Add to notification screen via static method
+      if (_sellerId != null) {
+        String message = isApproved 
+          ? 'Your seller account has been approved! You can now add products.'
+          : 'Your seller account status has changed. Please check details.';
+        
+        NotificationService.addSellerStatusNotification(
+          sellerId: _sellerId!,
+          isApproved: isApproved,
+          message: message,
+        );
+        
+        // Show the snackbar notification
+        if (mounted) {
+          Future.delayed(Duration(milliseconds: 500), () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: isApproved ? Colors.green : Colors.red,
+                content: Text(
+                  isApproved 
+                    ? 'Your seller account has been approved! You can now add products.'
+                    : 'Your seller account status has changed. Please check details.',
+                  style: TextStyle(color: Colors.white),
+                ),
+                duration: Duration(seconds: 5),
+                action: SnackBarAction(
+                  label: 'VIEW',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    // Navigate to notification details or seller settings
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => AccountNotifications()),
+                    );
+                  },
+                ),
+              ),
+            );
+          });
+        }
+      }
+    }
   }
   
   // Method to show pending status reminder
-  void _showPendingStatusReminder() {
+  Future<void> _showPendingStatusReminder() async {
     if (!mounted) return;
     
-    Future.delayed(Duration(milliseconds: 500), () {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.amber,
-          content: Text(
-            'Your seller account is pending approval. We\'ll notify you once it\'s approved.',
-            style: TextStyle(color: Colors.black87),
-          ),
-          duration: Duration(seconds: 4),
-        ),
-      );
-    });
+    // Create a unique key for pending status notification
+    final notificationKey = 'seller_status_pending';
+    
+    // Check if we've already shown this specific notification
+    bool alreadyShown = await NotificationService.hasShownSpecificNotification(notificationKey);
+    
+    // Only proceed if we haven't shown this notification yet
+    if (!alreadyShown) {
+      // Mark this specific notification type as shown
+      await NotificationService.markSpecificNotificationAsShown(notificationKey);
+      
+      // Add to notification screen via static method
+      if (_sellerId != null) {
+        NotificationService.addSellerStatusNotification(
+          sellerId: _sellerId!,
+          isApproved: false,
+          message: 'Your seller account is pending approval. We\'ll notify you once it\'s approved.',
+        );
+        
+        // Show the snackbar notification
+        if (mounted) {
+          Future.delayed(Duration(milliseconds: 500), () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.amber,
+                content: Text(
+                  'Your seller account is pending approval. We\'ll notify you once it\'s approved.',
+                  style: TextStyle(color: Colors.black87),
+                ),
+                duration: Duration(seconds: 4),
+              ),
+            );
+          });
+        }
+      }
+    }
   }
 
   Future<void> _logout() async {
     try {
+      await NotificationService.resetNotificationState();
       await _auth.signOut();
+      
       if (mounted) {
         Navigator.pushAndRemoveUntil(
           context,
@@ -170,6 +243,19 @@ class _AccountScreenState extends State<AccountScreen> {
           SnackBar(content: Text('Error signing out: $e')),
         );
       }
+    }
+  }
+
+  // Helper method to reset all seller status notification flags
+  Future<void> resetAllSellerNotificationFlags() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final userId = _auth.currentUser?.uid;
+    
+    if (userId != null) {
+      // Remove all specific notification flags for seller status
+      await prefs.remove('seller_notification_shown_${userId}_seller_status_approved');
+      await prefs.remove('seller_notification_shown_${userId}_seller_status_changed');
+      await prefs.remove('seller_notification_shown_${userId}_seller_status_pending');
     }
   }
 
@@ -599,11 +685,49 @@ class _AccountScreenState extends State<AccountScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => AccountNotifications(),
+                    builder: (context) => const AccountNotifications(),
                   ),
                 );
               },
             ),
+            
+            // Only show status update check for registered sellers
+            if (_isRegisteredSeller)
+              _buildSettingsItem(
+                icon: Icons.update,
+                title: 'Check for Status Updates',
+                onTap: () async {
+                  // Reset notification flags to force check
+                  await NotificationService.resetNotificationState();
+                  
+                  // Reset specific notification flags for all status types
+                  await resetAllSellerNotificationFlags();
+                  
+                  // Show loading indicator
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Checking for status updates...'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                  
+                  // Re-fetch user data which will trigger notification checks
+                  await _getCurrentUser();
+                  
+                  // Notify user
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Status updated. Check notifications for any changes.'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+                trailing: _isSellerApproved 
+                  ? const Icon(Icons.check_circle, color: Colors.green)
+                  : const Icon(Icons.pending, color: Colors.orange),
+              ),
             _buildSettingsItem(
               icon: Icons.help_outline,
               title: 'Help & Support',
@@ -641,11 +765,12 @@ class _AccountScreenState extends State<AccountScreen> {
     required IconData icon,
     required String title,
     required VoidCallback onTap,
+    Widget? trailing,
   }) {
     return ListTile(
       leading: Icon(icon, color: Colors.grey),
       title: Text(title),
-      trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+      trailing: trailing ?? const Icon(Icons.chevron_right, color: Colors.grey),
       onTap: onTap,
     );
   }
