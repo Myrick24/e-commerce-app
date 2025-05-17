@@ -48,6 +48,9 @@ class _ProductScreenState extends State<ProductScreen> {
   final _storage = FirebaseStorage.instance;
   final _imagePicker = ImagePicker();
   
+  bool _isSellerApproved = false; // Flag to track if seller is approved
+  String _sellerStatusMessage = ''; // Message to display if not approved
+  
   // Form controllers
   final _productNameController = TextEditingController();
   final _productDescriptionController = TextEditingController();
@@ -80,6 +83,34 @@ class _ProductScreenState extends State<ProductScreen> {
     // Set default date to tomorrow
     _selectedDate = DateTime.now().add(const Duration(days: 1));
     _updateDateText();
+    
+    // Check seller approval status
+    _checkSellerStatus();
+  }
+  
+  Future<void> _checkSellerStatus() async {
+    if (widget.sellerId != null) {
+      try {
+        // Get seller document to check status
+        final sellerDoc = await _firestore.collection('sellers').doc(widget.sellerId).get();
+        if (sellerDoc.exists) {
+          final sellerData = sellerDoc.data() as Map<String, dynamic>;
+          final String status = sellerData['status'] ?? 'pending';
+          
+          setState(() {
+            _isSellerApproved = status == 'active' || status == 'approved';
+            if (!_isSellerApproved) {
+              _sellerStatusMessage = 'Your seller account is pending approval from an admin. You\'ll be notified when you can add products.';
+            }
+          });
+        }
+      } catch (e) {
+        print('Error checking seller status: $e');
+        setState(() {
+          _sellerStatusMessage = 'Error checking seller approval status.';
+        });
+      }
+    }
   }
   
   void _updateDateText() {
@@ -269,6 +300,13 @@ class _ProductScreenState extends State<ProductScreen> {
       return;
     }
     
+    if (!_isSellerApproved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_sellerStatusMessage)),
+      );
+      return;
+    }
+    
     setState(() {
       _isLoading = true;
     });
@@ -418,6 +456,42 @@ class _ProductScreenState extends State<ProductScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Seller approval status notification banner
+                if (!_isSellerApproved && _sellerStatusMessage.isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 16.0),
+                    padding: const EdgeInsets.all(12.0),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      border: Border.all(color: Colors.amber.shade200),
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800),
+                            const SizedBox(width: 8.0),
+                            const Text(
+                              'Seller Account Pending Approval',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16.0,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8.0),
+                        Text(
+                          _sellerStatusMessage,
+                          style: const TextStyle(fontSize: 14.0),
+                        ),
+                      ],
+                    ),
+                  ),
                 // Product Image Section
                 Container(
                   height: 200,
@@ -800,14 +874,19 @@ class _ProductScreenState extends State<ProductScreen> {
                     const SizedBox(width: 16),
                     // Buy Now / Save Product Button
                     Expanded(
-                      child: ElevatedButton(
-                        onPressed: _isLoading ? null : _saveProduct,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                        child: _isLoading
+                      child: Tooltip(
+                        message: !_isSellerApproved 
+                          ? 'You cannot add products until your seller account is approved' 
+                          : 'Add this product to your inventory',
+                        child: ElevatedButton(
+                          onPressed: (_isLoading || !_isSellerApproved) ? null : _saveProduct,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            disabledBackgroundColor: Colors.grey.shade300,
+                          ),
+                          child: _isLoading
                             ? const SizedBox(
                                 height: 20,
                                 width: 20,
@@ -823,6 +902,7 @@ class _ProductScreenState extends State<ProductScreen> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
+                        ),
                       ),
                     ),
                   ],

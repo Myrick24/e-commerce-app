@@ -1,0 +1,125 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if the user is an admin
+    function isAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+      // Users collection
+    match /users/{userId} {
+      // User can read and update their own profile
+      allow read, update: if request.auth != null && request.auth.uid == userId;
+      
+      // Only admins can read all user documents and delete users
+      allow read, delete: if request.auth != null && isAdmin();
+      
+      // Any authenticated user can create a user document with their own UID
+      allow create: if request.auth != null && request.auth.uid == userId &&
+        request.resource.data.keys().hasOnly(['name', 'email', 'createdAt']) &&
+        request.resource.data.role == null; // Regular users cannot set role field
+        
+      // Allow users to update their role to 'seller' with 'pending' status
+      allow update: if request.auth != null && 
+        request.auth.uid == userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'status']) &&
+        request.resource.data.role == 'seller' &&
+        request.resource.data.status == 'pending';
+    }
+    
+    // Admin can manage user roles
+    match /users/{userId} {
+      allow update: if request.auth != null && 
+        isAdmin() &&
+        (request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['role', 'status']));
+    }
+      // Sellers collection
+    match /sellers/{sellerId} {
+      // Users can create and read their own seller profile
+      allow create: if request.auth != null && 
+                    request.resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null && 
+                 (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Only admins can update seller status
+      allow update: if request.auth != null && isAdmin();
+    }
+
+    // Products collection
+    match /products/{productId} {
+      // Anyone can read products that are approved
+      allow read: if resource.data.status == 'approved';
+      
+      // Sellers can create products and read/update/delete their own
+      // But only if they are approved sellers
+      allow create: if request.auth != null && 
+                   exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                   get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller' &&
+                   get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved';
+      
+      allow read, update, delete: if request.auth != null && 
+                                 resource.data.sellerId == request.auth.uid;
+        
+      // Admins can read, update and delete any product
+      allow read, update, delete: if request.auth != null && isAdmin();
+    }
+      // Admin notifications collection
+    match /admin_notifications/{notificationId} {
+      // Users can create notifications for admin
+      allow create: if request.auth != null;
+      // Only admins can read and update admin notifications
+      allow read, update, delete: if request.auth != null && isAdmin();
+    }
+    
+    // User notifications subcollection
+    match /users/{userId}/notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if request.auth != null && request.auth.uid == userId;
+      // Admins can create notifications for any user
+      allow create: if request.auth != null && isAdmin();
+      // Users can mark their notifications as read
+      allow update: if request.auth != null && 
+                   request.auth.uid == userId && 
+                   request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+    }
+    
+    // Transactions collection
+    match /transactions/{transactionId} {
+      // Users can read and create their own transactions
+      allow read, create: if request.auth != null && 
+        (request.resource.data.buyerId == request.auth.uid || 
+         request.resource.data.sellerId == request.auth.uid);
+         
+      // Users can only update their own transactions with specific fields
+      allow update: if request.auth != null && 
+        (resource.data.buyerId == request.auth.uid || 
+         resource.data.sellerId == request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'updatedAt']);
+          
+      // Admins can read and update any transaction
+      allow read, update: if request.auth != null && isAdmin();
+    }
+    
+    // Notifications collection
+    match /notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+        
+      // Only admins can create general notifications
+      allow create: if request.auth != null && 
+        (request.resource.data.type == 'personal' && 
+         request.resource.data.userId == request.auth.uid) || isAdmin();
+         
+      // Admins can read and manage all notifications
+      allow read, write: if request.auth != null && isAdmin();
+    }
+    
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -7,6 +7,7 @@ import 'product_screen.dart';
 import 'sellerproduct_screen.dart';
 import 'checkout_screen.dart'; // Import the checkout screen instead of cart screen
 import 'virtual_wallet_screen.dart'; // Import the digital wallet screen
+import 'notifications/account_notifications.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({Key? key}) : super(key: key);
@@ -23,6 +24,8 @@ class _AccountScreenState extends State<AccountScreen> {
   bool _isLoading = true;
   bool _isRegisteredSeller = false;
   String? _sellerId;
+  String _sellerStatus = 'pending'; // Default status for sellers
+  bool _isSellerApproved = false; // Flag to track if seller is approved
 
   @override
   void initState() {
@@ -64,10 +67,26 @@ class _AccountScreenState extends State<AccountScreen> {
             
             if (sellerQuery.docs.isNotEmpty) {
               final sellerData = sellerQuery.docs.first.data();
+              String sellerStatus = sellerData['status'] ?? 'pending';
+              bool isApproved = sellerStatus == 'active' || sellerStatus == 'approved';
+              bool previousApprovalStatus = _isSellerApproved;
+              
               setState(() {
                 _isRegisteredSeller = true;
                 _sellerId = sellerData['id'];
+                _sellerStatus = sellerStatus;
+                _isSellerApproved = isApproved;
               });
+              
+              // If seller status has changed since last check, show an appropriate notification
+              if (_isSellerApproved && !previousApprovalStatus) {
+                _showStatusChangeNotification(isApproved: true);
+              } else if (!_isSellerApproved && previousApprovalStatus) {
+                _showStatusChangeNotification(isApproved: false);
+              } else if (!_isSellerApproved && sellerStatus == 'pending') {
+                // Show pending status notification
+                _showPendingStatusReminder();
+              }
             }
           } catch (sellerQueryError) {
             print('Firestore seller query error: $sellerQueryError');
@@ -83,6 +102,55 @@ class _AccountScreenState extends State<AccountScreen> {
 
     setState(() {
       _isLoading = false;
+    });
+  }
+  
+  // Method to show status change notification
+  void _showStatusChangeNotification({required bool isApproved}) {
+    if (!mounted) return;
+    
+    Future.delayed(Duration(milliseconds: 500), () {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: isApproved ? Colors.green : Colors.red,
+          content: Text(
+            isApproved 
+              ? 'Your seller account has been approved! You can now add products.'
+              : 'Your seller account status has changed. Please check details.',
+            style: TextStyle(color: Colors.white),
+          ),
+          duration: Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'VIEW',
+            textColor: Colors.white,
+            onPressed: () {
+              // Navigate to notification details or seller settings
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => AccountNotifications()),
+              );
+            },
+          ),
+        ),
+      );
+    });
+  }
+  
+  // Method to show pending status reminder
+  void _showPendingStatusReminder() {
+    if (!mounted) return;
+    
+    Future.delayed(Duration(milliseconds: 500), () {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.amber,
+          content: Text(
+            'Your seller account is pending approval. We\'ll notify you once it\'s approved.',
+            style: TextStyle(color: Colors.black87),
+          ),
+          duration: Duration(seconds: 4),
+        ),
+      );
     });
   }
 
@@ -236,13 +304,23 @@ class _AccountScreenState extends State<AccountScreen> {
                         ElevatedButton(
                           onPressed: () {
                             if (_isRegisteredSeller) {
-                              // Navigate to product screen if already registered
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => ProductScreen(sellerId: _sellerId),
-                                ),
-                              );
+                              if (_isSellerApproved) {
+                                // Navigate to product screen if registered and approved
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ProductScreen(sellerId: _sellerId),
+                                  ),
+                                );
+                              } else {
+                                // Show a message that approval is pending
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Your seller account is pending approval from an admin. You\'ll be notified when approved.'),
+                                    duration: Duration(seconds: 4),
+                                  ),
+                                );
+                              }
                             } else {
                               // Navigate to registration screen if not registered
                               Navigator.push(
@@ -256,6 +334,8 @@ class _AccountScreenState extends State<AccountScreen> {
                                   setState(() {
                                     _isRegisteredSeller = true;
                                     _sellerId = result['sellerId'];
+                                    _sellerStatus = result['status'] ?? 'pending';
+                                    _isSellerApproved = _sellerStatus == 'active' || _sellerStatus == 'approved';
                                   });
                                 }
                               });
@@ -266,7 +346,9 @@ class _AccountScreenState extends State<AccountScreen> {
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           ),
-                          child: Text(_isRegisteredSeller ? 'Sell Now' : 'Register Now'),
+                          child: Text(_isRegisteredSeller 
+                            ? (_isSellerApproved ? 'Sell Now' : 'Pending Approval') 
+                            : 'Register Now'),
                         ),
                       ],
                     ),
@@ -311,16 +393,50 @@ class _AccountScreenState extends State<AccountScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Your Products',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
+                          Row(
+                            children: [
+                              const Text(
+                                'Your Products',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              if (!_isSellerApproved)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.shade100,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'Pending',
+                                    style: TextStyle(
+                                      color: Colors.deepOrange,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                           const SizedBox(height: 8),
                           ElevatedButton(
                             onPressed: () {
+                              // Check if seller is approved
+                              if (!_isSellerApproved) {
+                                // Show message about pending approval
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Your seller account is awaiting approval. You\'ll be notified when you can manage products.'),
+                                    duration: Duration(seconds: 3),
+                                  ),
+                                );
+                                return;
+                              }
+                            
+                              // Proceed with normal flow if approved
                               if (_sellerId == null) {
                                 // If seller ID is null for some reason, refresh seller status before continuing
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -479,7 +595,13 @@ class _AccountScreenState extends State<AccountScreen> {
               icon: Icons.notifications,
               title: 'Notifications',
               onTap: () {
-                // Navigate to notifications
+                // Navigate to notifications screen
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => AccountNotifications(),
+                  ),
+                );
               },
             ),
             _buildSettingsItem(

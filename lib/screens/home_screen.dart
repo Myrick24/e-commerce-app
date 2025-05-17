@@ -31,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
   int _unreadNotificationsCount = 0;
   int _unreadMessagesCount = 0;
+  String? _selectedCategory; // Track currently selected category filter
 
   @override
   void initState() {
@@ -501,7 +502,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       _buildCategoryItem(Icons.apple, 'Fruits', Colors.orange),
                       _buildCategoryItem(Icons.set_meal, 'Vegetables', Colors.green),
                       _buildCategoryItem(Icons.grain, 'Grains', Colors.amber),
-                      _buildCategoryItem(Icons.store, 'Shops', Colors.blue),
+                      _buildCategoryItem(Icons.all_inbox, 'Other', Colors.blue),
                     ],
                   ),
                 ),
@@ -511,12 +512,52 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Featured Products',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        const Text(
+                          'Featured Products',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (_selectedCategory != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8.0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _selectedCategory!,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedCategory = null;
+                                      });
+                                    },
+                                    child: const Icon(
+                                      Icons.close,
+                                      size: 14,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     TextButton(
                       onPressed: () {},
@@ -532,10 +573,16 @@ class _HomeScreenState extends State<HomeScreen> {
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             sliver: StreamBuilder<QuerySnapshot>(
-              stream: _firestore.collection('products')
-                  .orderBy('createdAt', descending: true)
-                  .limit(10)
-                  .snapshots(),
+              stream: _selectedCategory != null
+                ? _firestore.collection('products')
+                    .where('category', isEqualTo: _selectedCategory)
+                    .orderBy('createdAt', descending: true)
+                    .limit(10)
+                    .snapshots()
+                : _firestore.collection('products')
+                    .orderBy('createdAt', descending: true)
+                    .limit(10)
+                    .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const SliverToBoxAdapter(
@@ -565,7 +612,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'No products available yet',
+                            _selectedCategory != null 
+                              ? 'No ${_selectedCategory} products available'
+                              : 'No products available yet',
                             style: TextStyle(
                               color: Colors.grey[600],
                               fontSize: 16,
@@ -642,26 +691,48 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildCategoryItem(IconData icon, String label, Color color) {
-    return Column(
-      children: [
-        Container(
-          width: 50,
-          height: 50,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(10),
+    // Check if this is the currently selected category
+    final isSelected = _selectedCategory == label;
+    
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          // If tapping the already selected category, clear the filter
+          if (_selectedCategory == label) {
+            _selectedCategory = null;
+          } else {
+            _selectedCategory = label;
+          }
+        });
+      },
+      child: Column(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: isSelected ? color : color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+              border: isSelected 
+                ? Border.all(color: color, width: 2)
+                : null,
+            ),
+            child: Icon(
+              icon,
+              color: isSelected ? Colors.white : color,
+            ),
           ),
-          child: Icon(
-            icon,
-            color: color,
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected ? color : Colors.black,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

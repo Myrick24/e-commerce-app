@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'services/cart_service.dart';
+import 'tools/admin_setup.dart'; // Import admin setup tool
+import 'tools/sample_data_tool.dart'; // Import sample data tool
 
 // Create a global singleton instance of CartService that can be accessed from anywhere
 final cartService = CartService();
@@ -37,6 +39,10 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.green,
           scaffoldBackgroundColor: Colors.white,
         ),
+        routes: {
+          '/admin-setup': (context) => const AdminSetupTool(),
+          '/sample-data': (context) => const SampleDataTool(),
+        },
         home: const SplashScreen(),
       ),
     );
