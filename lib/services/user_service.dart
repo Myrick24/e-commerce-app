@@ -274,21 +274,39 @@ class UserService {
         String dateString = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
         weeklyActivity[dateString] = 0;
       }
-      
-      // Query users created in the last 7 days
+        // Query users created in the last 7 days
       DateTime sevenDaysAgo = now.subtract(const Duration(days: 7));
+      String sevenDaysAgoStr = sevenDaysAgo.toIso8601String();
+      
       QuerySnapshot querySnapshot = await _firestore
           .collection('users')
-          .where('createdAt', isGreaterThanOrEqualTo: sevenDaysAgo)
+          .where('createdAt', isGreaterThanOrEqualTo: sevenDaysAgoStr)
           .get();
           
       // Count users by day
       for (var doc in querySnapshot.docs) {
-        if ((doc.data() as Map<String, dynamic>)['createdAt'] != null) {
-          DateTime createdAt = (doc.data() as Map<String, dynamic>)['createdAt'].toDate();
-          String dateString = '${createdAt.year}-${createdAt.month.toString().padLeft(2, '0')}-${createdAt.day.toString().padLeft(2, '0')}';
-          if (weeklyActivity.containsKey(dateString)) {
-            weeklyActivity[dateString] = weeklyActivity[dateString]! + 1;
+        final data = doc.data() as Map<String, dynamic>;
+        if (data['createdAt'] != null) {
+          DateTime? createdAt;
+          
+          // Handle different timestamp formats
+          if (data['createdAt'] is String) {
+            try {
+              createdAt = DateTime.parse(data['createdAt']);
+            } catch (e) {
+              print('Error parsing user date string: ${data['createdAt']}');
+              continue;
+            }
+          } else if (data['createdAt'].runtimeType.toString().contains('Timestamp')) {
+            // Firestore Timestamp
+            createdAt = data['createdAt'].toDate();
+          }
+          
+          if (createdAt != null) {
+            String dateString = '${createdAt.year}-${createdAt.month.toString().padLeft(2, '0')}-${createdAt.day.toString().padLeft(2, '0')}';
+            if (weeklyActivity.containsKey(dateString)) {
+              weeklyActivity[dateString] = weeklyActivity[dateString]! + 1;
+            }
           }
         }
       }
@@ -312,6 +330,74 @@ class UserService {
       return true;
     } catch (e) {
       print('Error updating user to seller: $e');
+      return false;
+    }
+  }
+
+  // Restore admin account - creates user document for existing Firebase Auth admin
+  Future<bool> restoreAdminAccount(String adminEmail, String adminPassword) async {
+    try {
+      // Sign in with the admin credentials
+      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+        email: adminEmail,
+        password: adminPassword,
+      );
+
+      User? user = userCredential.user;
+      if (user != null) {
+        // Check if user document already exists
+        DocumentSnapshot userDoc = await _firestore.collection('users').doc(user.uid).get();
+        
+        if (userDoc.exists) {
+          print('Admin user document already exists');
+          return true;
+        }
+
+        // Create the admin user document in Firestore
+        await _firestore.collection('users').doc(user.uid).set({
+          'name': 'Admin',
+          'email': adminEmail,
+          'role': 'admin',
+          'status': 'active',
+          'createdAt': FieldValue.serverTimestamp(),
+          'isMainAdmin': true, // Flag to identify the main admin
+        });
+
+        print('Admin account restored successfully');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('Error restoring admin account: $e');
+      return false;
+    }
+  }
+
+  // Create admin user document for existing auth account by UID
+  Future<bool> createAdminUserDocument(String uid, String email, String name) async {
+    try {
+      // Check if user document already exists
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(uid).get();
+      
+      if (userDoc.exists) {
+        print('User document already exists');
+        return true;
+      }
+
+      // Create the admin user document in Firestore
+      await _firestore.collection('users').doc(uid).set({
+        'name': name,
+        'email': email,
+        'role': 'admin',
+        'status': 'active',
+        'createdAt': FieldValue.serverTimestamp(),
+        'isMainAdmin': true, // Flag to identify the main admin
+      });
+
+      print('Admin user document created successfully');
+      return true;
+    } catch (e) {
+      print('Error creating admin user document: $e');
       return false;
     }
   }

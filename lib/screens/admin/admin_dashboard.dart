@@ -4,7 +4,7 @@ import '../../services/admin_service.dart';
 import '../../services/user_service.dart';
 import 'dashboard_home.dart';
 import 'user_management.dart';
-import 'product_listings.dart';
+import 'product_listings_fixed_final.dart'; // Updated to use the fixed version
 import 'transaction_monitoring.dart';
 import 'announcements.dart';
 import 'admin_settings.dart';

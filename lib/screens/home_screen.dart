@@ -576,10 +576,12 @@ class _HomeScreenState extends State<HomeScreen> {
               stream: _selectedCategory != null
                 ? _firestore.collection('products')
                     .where('category', isEqualTo: _selectedCategory)
+                    .where('status', isEqualTo: 'approved')  // Only show approved products
                     .orderBy('createdAt', descending: true)
                     .limit(10)
                     .snapshots()
                 : _firestore.collection('products')
+                    .where('status', isEqualTo: 'approved')  // Only show approved products
                     .orderBy('createdAt', descending: true)
                     .limit(10)
                     .snapshots(),
@@ -630,7 +632,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 return SliverGrid(
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
-                    childAspectRatio: 0.575, 
+                    childAspectRatio: 0.7, 
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
                   ),

@@ -343,7 +343,7 @@ class _ProductScreenState extends State<ProductScreen> {
         'unit': _unitController.text.trim(),
         'isOrganic': _isOrganic,
         'availableDate': _selectedDate!.toIso8601String(), // Store as string
-        'status': 'available',
+        'status': 'pending', // Set as pending until admin approves
         'createdAt': DateTime.now().toIso8601String(), // Store as string
         'category': _selectedCategory,
         'allowsReservation': _allowsReservation,
@@ -395,7 +395,7 @@ class _ProductScreenState extends State<ProductScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Product added successfully! Commission (3%): ₱${commissionAmount.toStringAsFixed(2)}'
+              'Product submitted for admin approval! Commission (3%): ₱${commissionAmount.toStringAsFixed(2)}'
             ),
             duration: const Duration(seconds: 4),
           ),
@@ -569,11 +569,11 @@ class _ProductScreenState extends State<ProductScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.green,
+                        color: Colors.amber,  // Changed to amber for pending status
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Text(
-                        'In Stock',
+                        'Pending Approval',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 12,

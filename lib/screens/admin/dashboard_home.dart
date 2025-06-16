@@ -80,13 +80,12 @@ class _DashboardHomeState extends State<DashboardHome> {
         ],
       ),
     );
-  }  Widget _buildSummaryCards() {
-    return GridView.count(
+  }  Widget _buildSummaryCards() {    return GridView.count(
       crossAxisCount: 2,
       crossAxisSpacing: 16.0,
       mainAxisSpacing: 16.0,
       shrinkWrap: true,
-      childAspectRatio: 1.3, // Decrease ratio to make cards taller
+      childAspectRatio: 1.5, // Increased ratio to make cards shorter
       physics: const NeverScrollableScrollPhysics(),
       children: [
         _buildSummaryCard(
